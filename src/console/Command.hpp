@@ -1,6 +1,8 @@
 #ifndef CONSOLE_COMMAND_HPP
 #define CONSOLE_COMMAND_HPP
 
+#include "console/Line.hpp"
+
 #include <storm/Hash.hpp>
 #include <cstdint>
 
@@ -24,11 +26,23 @@ enum CATEGORY {
     LAST
 };
 
-struct CONSOLECOMMAND : TSHashObject<CONSOLECOMMAND, HASHKEY_STRI> {
-    const char* command;
-    int32_t (*handler)(const char*, const char*);
-    const char* helpText;
-    CATEGORY category;
+class CONSOLECOMMAND : public TSHashObject<CONSOLECOMMAND, HASHKEY_STRI> {
+    public:
+        const char* m_command;
+        int32_t (*m_handler)(const char*, const char*);
+        const char* m_helpText;
+        CATEGORY m_category;
+};
+
+#define CONSOLE_EXEC_BUFFER_SIZE 0x2000
+
+enum EXECMODE {
+    EM_PROMPTOVERWRITE = 0,
+    EM_RECORDING = 1,
+    EM_APPEND = 2,
+    EM_WRITEFILE = 3,
+    EM_NOTACTIVE = 4,
+    EM_NUM_EXECMODES = 5
 };
 
 extern TSHashTable<CONSOLECOMMAND, HASHKEY_STRI> g_consoleCommandHash;
@@ -53,5 +67,9 @@ int32_t ConsoleCommand_Help(const char* command, const char* arguments);
 int32_t ConsoleCommand_Quit(const char* command, const char* arguments);
 
 int32_t ConsoleCommand_Ver(const char* command, const char* arguments);
+
+void ConsoleCommandExecute(char* commandLine, int32_t addToHistory);
+
+void MakeCommandCurrent(CONSOLELINE* lineptr, char* command);
 
 #endif

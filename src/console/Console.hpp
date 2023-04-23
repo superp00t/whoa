@@ -11,6 +11,12 @@ void ConsoleAccessSetEnabled(int32_t enable);
 
 int32_t ConsoleGetActive();
 
+float ConsoleGetFontHeight();
+
+float ConsoleGetLines();
+
+float ConsoleGetHeight();
+
 KEY ConsoleGetHotKey();
 
 CONSOLERESIZESTATE ConsoleGetResizeState();
@@ -19,6 +25,9 @@ void ConsoleSetActive(int32_t active);
 
 void ConsoleSetHotKey(KEY hotkey);
 
+void ConsoleSetHeight(float height);
+
 void ConsoleSetResizeState(CONSOLERESIZESTATE state);
+
 
 #endif  // ifndef CONSOLE_CONSOLE_HPP
