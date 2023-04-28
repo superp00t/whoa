@@ -1,4 +1,6 @@
 #include "console/Console.hpp"
+#include "event/Context.hpp"
+#include "event/Event.hpp"
 
 static int32_t s_active;
 static int32_t s_consoleAccessEnabled;
@@ -54,4 +56,8 @@ void ConsoleSetResizeState(CONSOLERESIZESTATE state) {
 
 void ConsoleSetHeight(float height) {
     s_consoleHeight = height;
+}
+
+void ConsolePostClose() {
+    EventPostCloseEx(EventGetCurrentContext());
 }

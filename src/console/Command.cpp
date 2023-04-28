@@ -1,7 +1,9 @@
 #include "console/Command.hpp"
 #include "console/Line.hpp"
 #include <storm/Error.hpp>
+#include <storm/Unicode.hpp>
 #include <cctype>
+#include <algorithm>
 
 int32_t ValidateFileName(const char* filename) {
     if (SStrStr(filename, "..") || SStrStr(filename, "\\")) {
@@ -84,10 +86,6 @@ uint32_t ConsoleCommandHistoryDepth() {
     return HISTORY_DEPTH;
 }
 
-void ConsoleCommandInitialize() {
-    ConsoleCommandRegister("help", ConsoleCommand_Help, CONSOLE, "Provides help information about a command.");
-}
-
 int32_t ConsoleCommandRegister(const char* command, int32_t (*handler)(const char*, const char*), CATEGORY category, const char* helpText) {
     STORM_ASSERT(command);
     STORM_ASSERT(handler);
@@ -117,25 +115,66 @@ void ConsoleCommandUnregister(const char* command) {
     }
 }
 
-CONSOLECOMMAND* ParseCommand(const char* commandLine, const char** command, const char** arguments) {
+CONSOLECOMMAND* ParseCommand(const char* commandLine, const char** command, char* arguments, size_t argsize) {
     STORM_ASSERT(commandLine);
-
-    static char cmd[32] = {0};
 
     auto string = commandLine;
 
-    SStrTokenize(&string, cmd, sizeof(cmd), " ,;\t\"\r\n", nullptr);
+    static char cmd[32] = { 0 };
+
+    auto cmdptr = &cmd[0];
+
+    int32_t end = MAX_CMD_LENGTH;
+    int32_t i = 0;
+
+    while (i < end) {
+        int32_t chars;
+
+        auto code = SUniSGetUTF8(reinterpret_cast<const uint8_t*>(string), &chars);
+
+        if (code == -1 || code == ' ' || chars > MAX_CMD_LENGTH) {
+            break;
+        }
+
+        if (chars) {
+            for (size_t c = 0; c < chars; c++) {
+                *cmdptr = *string;
+                cmdptr += chars;
+                string += chars;
+            }
+        }
+
+        i += chars;
+    }
+
+    *cmdptr = '\0';
 
     if (command) {
         *command = cmd;
     }
 
-    if (commandLine) {
-        while (isspace(*commandLine)) {
-            commandLine++;
+    auto argptr = arguments;
+
+    if (arguments) {
+        int32_t chars;
+
+        auto code = SUniSGetUTF8(reinterpret_cast<const uint8_t*>(string), &chars);
+
+        // Discard space
+        while(code != -1 && code == ' ') {
+            string += chars;
+            code = SUniSGetUTF8(reinterpret_cast<const uint8_t*>(string), &chars);
         }
 
-        *arguments = commandLine;
+        SStrCopy(argptr, string, argsize);
+
+        auto len = SStrLen(argptr);
+
+        while (len > 0 && (argptr[len-1] == ' ')) {
+            len--;
+            argptr[len] = '\0';
+        }
+
     }
 
     return g_consoleCommandHash.Ptr(cmd);
@@ -146,9 +185,12 @@ void MakeCommandCurrent(CONSOLELINE* lineptr, char* command) {
     lineptr->inputpos = len;
     lineptr->chars = len;
     lineptr->buffer[len] = '\0';
+
     len = SStrLen(command);
     ReserveInputSpace(lineptr, len);
+
     SStrCopy(lineptr->buffer + lineptr->inputpos, command, STORM_MAX_STR);
+
     len = lineptr->inputpos + len;
     lineptr->inputpos = len;
     lineptr->chars = len;
@@ -168,31 +210,67 @@ void ConsoleCommandExecute(char* commandLine, int32_t addToHistory) {
         AddToHistory(commandLine);
     }
 
-    const char* command;
-    const char* arguments;
+    const char* command = nullptr;
+    auto arguments = reinterpret_cast<char*>(SMemAlloc(CMD_BUFFER_SIZE, __FILE__, __LINE__, 0));
 
-    auto cmd = ParseCommand(commandLine, &command, &arguments);
+    auto cmd = ParseCommand(commandLine, &command, arguments, CMD_BUFFER_SIZE);
 
     if (cmd) {
         cmd->m_handler(command, arguments);
     } else {
         ConsoleWrite("Unknown command", DEFAULT_COLOR);
     }
+
+    if (arguments) {
+        SMemFree(arguments, __FILE__, __LINE__, 0);
+    }
 }
 
-int32_t ConsoleCommand_Help(const char* command, const char* arguments) {
-    ConsoleWriteA("Help for \"%s\":", DEFAULT_COLOR, command);
-    // TODO
-    return 0;
+static ConsoleCommandList s_consoleSpecificCommands[] = {
+    { "fontcolor",        ConsoleCommand_FontColor,       "[ColorClassName] [Red 0-255] [Green 0-255] [Blue 0-255]"      },
+    { "bgcolor",          ConsoleCommand_BackGroundColor, "[alpha 0-255] [Red 0-255] [Green 0-255] [Blue 0-255]"         },
+    { "highlightcolor",   ConsoleCommand_HighLightColor,  "[alpha 0-255] [Red 0-255] [Green 0-255] [Blue 0-255]"         },
+    { "fontsize",         ConsoleCommand_FontSize,        "[15-50] arbitrary font size"                                  },
+    { "font",             ConsoleCommand_Font,            "[fontname] make sure to use the .ttf file name"               },
+    { "consolelines",     ConsoleCommand_BufferSize,      "[number] number of lines to show in the console"              },
+    { "clear",            ConsoleCommand_ClearConsole,    "Clears the console buffer"                                    },
+    { "proportionaltext", ConsoleCommand_Proportional,    "Toggles fixed-width text characters"                          },
+    { "spacing",          ConsoleCommand_CharSpacing,     "[float] specifies inter-character spacing, in pixels"         },
+    { "settings",         ConsoleCommand_CurrentSettings, "Shows current font and console settings"                      },
+    { "default",          ConsoleCommand_DefaultSettings, "Resets all the font and console settings"                     },
+    { "closeconsole",     ConsoleCommand_CloseConsole,    "Closes the Console window"                                    },
+    { "repeat",           ConsoleCommand_RepeatHandler,   "Repeats a command"                                            },
+    { "AppendLogToFile",  ConsoleCommand_AppendLogToFile, "[filename = ConsoleLogs/Log<Timestamp>.txt] [numLines = all]" }
+};
+
+static ConsoleCommandList s_commonCommands[] = {
+    { "quit",   ConsoleCommand_Quit,   nullptr },
+    { "ver",    ConsoleCommand_Ver,    nullptr },
+    { "setmap", ConsoleCommand_SetMap, nullptr }
+};
+
+void RegisterConsoleCommandList(CATEGORY category, ConsoleCommandList list[], size_t count) {
+    size_t i = 0;
+
+    while (i < count) {
+        auto& cmd = list[i];
+        ConsoleCommandRegister(cmd.m_command, cmd.m_handler, category, cmd.m_helpText);
+        i++;
+    }
 }
 
-int32_t ConsoleCommand_Quit(const char* command, const char* arguments) {
-    // TODO
-    // ConsolePostClose()
-    return 0;
+void ConsoleInitializeScreenCommand() {
+    CONSOLE_REGISTER_LIST(CONSOLE, s_consoleSpecificCommands);
 }
 
-int32_t ConsoleCommand_Ver(const char* command, const char* arguments) {
+void ConsoleCommandInitialize() {
+    ConsoleCommandRegister("help", ConsoleCommand_Help, CONSOLE, "Provides help information about a command.");
+}
+
+void ConsoleInitializeCommonCommand() {
+    CONSOLE_REGISTER_LIST(DEFAULT, s_commonCommands);
+}
+
+void ConsoleInitializeDebugCommand() {
     // TODO
-    return 0;
 }

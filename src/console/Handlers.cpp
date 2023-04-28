@@ -75,6 +75,12 @@ int32_t OnKeyDown(const EVENT_DATA_KEY* data, void* param) {
             SetInputString(line->buffer);
         }
         break;
+    case KEY_PAGEUP:
+        MoveLinePtr(1, data->metaKeyState);
+        break;
+    case KEY_PAGEDOWN:
+        MoveLinePtr(0, data->metaKeyState);
+        break;
     case KEY_ENTER:
         if (line->inputstart <= line->inputpos && line->inputpos != line->inputstart) {
             line->inputpos = 0;

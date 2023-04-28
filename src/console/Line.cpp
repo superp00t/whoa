@@ -9,7 +9,11 @@
 #include <storm/thread/SCritSect.hpp>
 
 static SCritSect s_critsect;
+// In this list:
+// The head = the input line.
+// The tail = the oldest line printed.
 static STORM_LIST(CONSOLELINE) s_linelist;
+// Pointer to the current line. Determines what region of the console history gets rendered.
 static CONSOLELINE* s_currlineptr = nullptr;
 static uint32_t s_NumLines = 0;
 
@@ -29,29 +33,25 @@ void EnforceMaxLines() {
         return;
     }
 
-    if (lineptr->buffer != nullptr) {
-        SMemFree(lineptr->buffer, __FILE__, __LINE__, 0);
-    }
-
-    if (lineptr->fontPointer != nullptr) {
-        GxuFontDestroyString(lineptr->fontPointer);
-    }
-
+    // Clean up oldest line.
     s_linelist.UnlinkNode(lineptr);
-
-    SMemFree(lineptr, __FILE__, __LINE__, 0);
+    s_linelist.DeleteNode(lineptr);
 
     s_NumLines--;
 }
 
 CONSOLELINE* GetInputLine() {
-    if (s_NumLines == 0) {
+    auto head = s_linelist.Head();
+
+    // If the list is empty, or the list's head is an entered input-line,
+    // Create a fresh input line, with "> " prefixed before the caret.
+     if (!head || head->inputpos == 0) {
         auto l = SMemAlloc(sizeof(CONSOLELINE), __FILE__, __LINE__, 0);
         auto line = new(l) CONSOLELINE();
         line->buffer = reinterpret_cast<char*>(SMemAlloc(CONSOLE_LINE_PREALLOC, __FILE__, __LINE__, 0));
         line->charsalloc = CONSOLE_LINE_PREALLOC;
 
-        s_linelist.LinkToTail(line);
+        s_linelist.LinkToHead(line);
 
         SStrCopy(line->buffer, "> ", line->charsalloc);
         SetInputString(line->buffer);
@@ -67,9 +67,9 @@ CONSOLELINE* GetInputLine() {
         EnforceMaxLines();
 
         return line;
-    } else {
-        return s_currlineptr;
     }
+
+    return head;
 }
 
 CONSOLELINE* GetLineAtMousePosition(float y) {
@@ -118,7 +118,7 @@ void ReserveInputSpace(CONSOLELINE* line, size_t len) {
 }
 
 void ConsoleWrite(const char* str, COLOR_T color) {
-    if (g_theGxDevicePtr == nullptr) {
+    if (g_theGxDevicePtr == nullptr || str[0] == '\0') {
         return;
     }
 
@@ -127,18 +127,30 @@ void ConsoleWrite(const char* str, COLOR_T color) {
     auto l = reinterpret_cast<char*>(SMemAlloc(sizeof(CONSOLELINE), __FILE__, __LINE__, 0));
     auto lineptr = new(l) CONSOLELINE();
 
+    auto head = s_linelist.Head();
+
+    if (head == nullptr || head->inputpos == 0) {
+        // Attach console line to head
+        s_linelist.LinkToHead(lineptr);
+    } else {
+        // Attach console line between head and head-1
+        s_linelist.LinkNode(lineptr, 1, head->Prev());
+    }
+
     size_t len = SStrLen(str) + 1;
     lineptr->chars = len;
     lineptr->charsalloc = len;
     lineptr->buffer = reinterpret_cast<char*>(SMemAlloc(len, __FILE__, __LINE__, 0));
     lineptr->colorType = color;
 
-    SStrCopy(lineptr->buffer, str, len);
+    SStrCopy(lineptr->buffer, str, STORM_MAX_STR);
 
     GenerateNodeString(lineptr);
 
+    s_NumLines++;
+
+    EnforceMaxLines();
     //
-    s_linelist.LinkToTail(lineptr);
 
     s_critsect.Leave();
 }
@@ -149,7 +161,7 @@ void ConsoleWriteA(const char* str, COLOR_T color, ...) {
     if (str != nullptr && str[0] != '\0') {
         va_list list;
         va_start(list, color);
-        SStrPrintf(buffer, sizeof(buffer), str, list);
+        vsnprintf(buffer, sizeof(buffer), str, list);
         va_end(list);
 
         ConsoleWrite(buffer, color);
@@ -157,25 +169,38 @@ void ConsoleWriteA(const char* str, COLOR_T color, ...) {
 }
 
 void MoveLinePtr(int32_t direction, int32_t modifier) {
-    CONSOLELINE* ptr;
+    CONSOLELINE* lineptr = s_currlineptr;
 
-    if (modifier == 1) {
-        ptr = s_currlineptr;
+    auto anyControl = (1 << KEY_LCONTROL) | (1 << KEY_RCONTROL);
 
-        for (int32_t i = 0; i < 10 && ptr != nullptr; i++) {
+    if (modifier & anyControl) {
+        for (int32_t i = 0; i < 10 && lineptr != nullptr; i++) {
             CONSOLELINE* next;
 
             if (direction == 1) {
-                next = ptr->m_link.Next();
+                next = lineptr->m_link.Next();
             } else {
-                next = ptr->m_link.Prev();
+                next = lineptr->m_link.Prev();
             }
 
             if (next != nullptr) {
-                ptr = next;
+                lineptr = next;
             }
         }
     } else {
+        // if (s_currlineptr == s_linelist.Head()) {
+        //     s_currlineptr = s_currlineptr->Prev();
+        // }
+
+        if (direction == 1) {
+            lineptr = lineptr->m_link.Next();
+        } else {
+            lineptr = lineptr->m_link.Prev();
+        }
+    }
+
+    if (lineptr) {
+        s_currlineptr = lineptr;
     }
 }
 
@@ -197,3 +222,24 @@ CONSOLELINE* GetCurrentLine() {
     return s_currlineptr;
 }
 
+CONSOLELINE::~CONSOLELINE() {
+    if (this->buffer) {
+        SMemFree(this->buffer, __FILE__, __LINE__, 0);
+    }
+
+    if (this->fontPointer) {
+        GxuFontDestroyString(this->fontPointer);
+    }
+}
+
+void ConsoleClear() {
+    s_NumLines = 0;
+
+    auto ptr = s_linelist.Head();
+
+    while (ptr) {
+        s_linelist.UnlinkNode(ptr);
+        s_linelist.DeleteNode(ptr);
+        ptr = s_linelist.Head();
+    }
+}

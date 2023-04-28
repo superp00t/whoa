@@ -38,4 +38,6 @@ class CVar : public TSHashObject<CVar, HASHKEY_STRI> {
         int32_t Update();
 };
 
+int32_t CvarCommandHandler(const char* command, const char* arguments);
+
 #endif

@@ -1,5 +1,6 @@
 #include "console/Screen.hpp"
 #include "console/Console.hpp"
+#include "console/Command.hpp"
 #include "console/Handlers.hpp"
 #include "console/Line.hpp"
 #include "console/Types.hpp"
@@ -153,11 +154,11 @@ void PaintBackground(void* param, const RECTF* rect, const RECTF* visible, float
 }
 
 void SetInputString(char* buffer) {
-    s_highlightState = HS_NONE;
-    s_hRect = { 0.0f, 0.0f, 0.0f, 0.0f };
-    s_highlightLeftCharIndex = 0;
-    s_highlightRightCharIndex = 0;
-    s_highlightInput = 0;
+    // s_highlightState = HS_NONE;
+    // s_hRect = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // s_highlightLeftCharIndex = 0;
+    // s_highlightRightCharIndex = 0;
+    // s_highlightInput = 0;
 
     if (s_inputString) {
         GxuFontDestroyString(s_inputString);
@@ -261,7 +262,7 @@ void PaintText(void* param, const RECTF* rect, const RECTF* visible, float elaps
     static float carettime = 0.0f;
     static C3Vector caretpos = { 0.0f, 0.0f, 0.0f };
 
-    // Toggle caret if time exceeds 0.2
+    //
     carettime += elapsedSec;
     if ((!s_caret && carettime > 0.2) || (carettime > 0.3)) {
         s_caret = !s_caret;
@@ -272,7 +273,7 @@ void PaintText(void* param, const RECTF* rect, const RECTF* visible, float elaps
 
     C3Vector pos = {
         s_rect.left,
-        ConsoleGetFontHeight() * 0.75f + s_rect.bottom,
+        (ConsoleGetFontHeight() * 0.75f) + s_rect.bottom,
         1.0f
     };
 
@@ -292,6 +293,8 @@ void PaintText(void* param, const RECTF* rect, const RECTF* visible, float elaps
 
         DrawCaret(caretpos);
     }
+
+    pos.y += ConsoleGetFontHeight();
 
     for (auto lineptr = GetCurrentLine(); (lineptr && pos.y < 1.0); lineptr = lineptr->Next()) {
         if (lineptr != line) {
@@ -435,10 +438,11 @@ void ConsoleScreenInitialize(const char* title) {
     RegisterHandlers();
 
     // TODO register commands
+    ConsoleInitializeScreenCommand();
 
     // TODO EventSetConfirmCloseCallback(EventCloseCallback, 0);
 
-    // TODO ConsoleCommandExecute("ver", 1);
+    ConsoleCommandExecute("ver", 1);
 
     s_batch = GxuFontCreateBatch(false, false);
 }

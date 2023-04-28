@@ -18,6 +18,8 @@ class CONSOLELINE : public TSLinkedNode<CONSOLELINE> {
         uint32_t inputstart;
         COLOR_T colorType;
         CGxString* fontPointer;
+
+        ~CONSOLELINE();
 };
 
 void ConsoleWrite(const char* str, COLOR_T color);
@@ -35,4 +37,7 @@ CONSOLELINE* GetInputLine();
 CONSOLELINE* GetCurrentLine();
 
 CONSOLELINE* GetLineAtMousePosition(float y);
+
+void ConsoleClear();
+
 #endif

@@ -1,4 +1,6 @@
 #include "console/CVar.hpp"
+#include "console/Command.hpp"
+#include "console/Line.hpp"
 #include <storm/String.hpp>
 
 bool CVar::m_needsSave;
@@ -6,8 +8,8 @@ TSHashTable<CVar, HASHKEY_STRI> CVar::s_registeredCVars;
 
 CVar* CVar::Lookup(const char* name) {
     return name
-        ? CVar::s_registeredCVars.Ptr(name)
-        : nullptr;
+               ? CVar::s_registeredCVars.Ptr(name)
+               : nullptr;
 }
 
 CVar* CVar::Register(const char* name, const char* help, uint32_t flags, const char* value, bool (*fcn)(CVar*, const char*, const char*, void*), uint32_t category, bool a7, void* arg, bool a9) {
@@ -69,13 +71,14 @@ CVar* CVar::Register(const char* name, const char* help, uint32_t flags, const c
         }
 
         // TODO
-        // ConsoleCommandRegister(var->m_key.GetString(), &CvarCommandHandler, category, help);
+        ConsoleCommandRegister(name, CvarCommandHandler, CATEGORY(category), help);
     }
 
     return var;
 }
 
-CVar::CVar() : TSHashObject<CVar, HASHKEY_STRI>() {
+CVar::CVar()
+    : TSHashObject<CVar, HASHKEY_STRI>() {
     // TODO
 }
 
@@ -158,6 +161,60 @@ int32_t CVar::Update() {
 
     this->InternalSet(this->m_latchedValue.GetString(), true, false, false, true);
     this->m_latchedValue.Copy(nullptr);
+
+    return 1;
+}
+
+int32_t CvarCommandHandler(const char* command, const char* arguments) {
+    CVar* cvar = CVar::Lookup(command);
+
+    STORM_ASSERT(cvar);
+
+    char ch;
+    const char* chr;
+
+    ch = arguments[0];
+
+    while (ch == ' ') {
+        chr = arguments + 1;
+        arguments++;
+        ch = *chr;
+    }
+
+    if (arguments[0] != 0x00) {
+        cvar->Set(arguments, true, true, false, false);
+        return 1;
+    }
+
+    auto value = cvar->m_stringValue.GetString();
+
+    ConsoleWriteA("CVar \"%s\" is \"%s\"", DEFAULT_COLOR, command, value ? value : "");
+    return 1;
+}
+
+int32_t CvarListCommandHandler(const char* command, const char* arguments) {
+    char text[256];
+    char text2[256];
+
+    for (CVar* i = CVar::s_registeredCVars.Head(); i != nullptr; i = CVar::s_registeredCVars.Next(i)) {
+        SStrPrintf(text, sizeof(text), "  \"%s\" is \"%s\"", i->m_key.m_str, i->m_stringValue);
+
+        if (i->m_defaultValue.GetString()) {
+            if (SStrCmp(i->m_stringValue.GetString(), i->m_defaultValue.GetString(), STORM_MAX_STR)) {
+                SStrPrintf(text2, sizeof(text2), " (default \"%s\")", i->m_defaultValue);
+                SStrPack(text, text2, sizeof(text));
+            }
+        }
+
+        if (i->m_resetValue.GetString()) {
+            if (SStrCmp(i->m_stringValue.GetString(), i->m_resetValue.GetString(), STORM_MAX_STR)) {
+                SStrPrintf(text2, sizeof(text2), " (reset \"%s\")", i->m_resetValue);
+                SStrPack(text, text2, sizeof(text));
+            }
+        }
+
+        ConsoleWrite(text, DEFAULT_COLOR);
+    }
 
     return 1;
 }

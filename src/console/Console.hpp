@@ -29,5 +29,6 @@ void ConsoleSetHeight(float height);
 
 void ConsoleSetResizeState(CONSOLERESIZESTATE state);
 
+void ConsolePostClose();
 
 #endif  // ifndef CONSOLE_CONSOLE_HPP
